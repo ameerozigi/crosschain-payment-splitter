@@ -2,6 +2,28 @@
 pragma solidity ^0.8.24;
 
 import {PaymentSplitter} from "./PaymentSplitter.sol";
+import {IERC20} from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @notice Mock bridge interface. In production this would be replaced by the
+///         real Wormhole or LayerZero messaging interface, e.g.:
+///
+///   IWormhole (https://docs.wormhole.com/) or
+///   ILayerZero (https://layerzero.gitbook.io/) `send` function.
+/// The call would look like:
+///
+///   IWormhole(bridge).sendPayload{value: fee}(
+///       targetChainId,
+///       recipientAddressBytes,
+///       abi.encode(transfer)
+///   );
+interface IBridge {
+    function sendMessage(
+        uint256 targetChainId,
+        bytes memory recipientBytes,
+        bytes memory payload
+    ) external returns (uint256 nonce);
+}
 
 /// @title CrossChainSplitter
 /// @notice Extends PaymentSplitter to support cross-chain recipients.
@@ -26,26 +48,6 @@ contract CrossChainSplitter is PaymentSplitter {
         uint256 nonce
     );
 
-    // Mock bridge interface. In production this would be replaced by the
-    // real Wormhole or LayerZero messaging interface, e.g.:
-    //
-    //   IWormhole (https://docs.wormhole.com/) or
-    //   ILayerZero (https://layerzero.gitbook.io/) `send` function.
-    // The call would look like:
-    //
-    //   IWormhole(bridge).sendPayload{value: fee}(
-    //       targetChainId,
-    //       recipientAddressBytes,
-    //       abi.encode(transfer)
-    //   );
-    interface IBridge {
-        function sendMessage(
-            uint256 targetChainId,
-            bytes memory recipientBytes,
-            bytes memory payload
-        ) external returns (uint256 nonce);
-    }
-
     uint256 public nextNonce;
     IBridge public bridge;
 
@@ -63,7 +65,16 @@ contract CrossChainSplitter is PaymentSplitter {
         address token,
         uint256 amount,
         uint256 targetChainId
-    ) external nonReentrant {
+    ) public nonReentrant {
+        _queueCrossChainPayment(recipient, token, amount, targetChainId);
+    }
+
+    function _queueCrossChainPayment(
+        address recipient,
+        address token,
+        uint256 amount,
+        uint256 targetChainId
+    ) internal {
         require(targetChainId != block.chainid, "same chain");
         require(token != address(0) || address(this).balance >= amount, "insufficient balance");
 
@@ -140,7 +151,7 @@ contract CrossChainSplitter is PaymentSplitter {
                 emit RecipientPaid(r.account, token, share, timestamp);
             } else {
                 // Cross-chain payout
-                queueCrossChainPayment(r.account, token, share, targetChainId);
+                _queueCrossChainPayment(r.account, token, share, targetChainId);
             }
         }
     }
@@ -148,7 +159,7 @@ contract CrossChainSplitter is PaymentSplitter {
     /// @dev Hook to resolve a recipient's chain ID. By default every recipient
     ///      is assumed to be on Arbitrum. Override this in a deployment-specific
     ///      contract or provide a recipient -> chainId registry.
-    function _resolveChainId(address recipient) internal pure returns (uint256) {
+    function _resolveChainId(address recipient) internal virtual returns (uint256) {
         return ARBITRUM_CHAIN_ID;
     }
 }

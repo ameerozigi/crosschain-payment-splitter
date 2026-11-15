@@ -11,6 +11,8 @@ import {Ownable} from "openzeppelin-contracts/access/Ownable.sol";
 contract PaymentSplitter is Ownable, ReentrancyGuard {
     uint256 public constant MAX_RECIPIENTS = 10;
 
+    constructor() Ownable(msg.sender) {}
+
     struct Recipient {
         address payable account;
         uint256 shareBips; // basis points (1/100th of a percent)
@@ -37,11 +39,11 @@ contract PaymentSplitter is Ownable, ReentrancyGuard {
         uint256 timestamp
     );
 
-    Recipient[] private recipients;
-    uint256 private totalShareBips;
+    Recipient[] internal recipients;
+    uint256 internal totalShareBips;
 
     // recipient index -> payment history
-    mapping(address => PaymentRecord[]) private paymentHistory;
+    mapping(address => PaymentRecord[]) internal paymentHistory;
 
     modifier onlyRegistered() {
         require(_isRecipient(msg.sender), "not a registered recipient");
@@ -78,7 +80,11 @@ contract PaymentSplitter is Ownable, ReentrancyGuard {
         }
         require(sum == 10000, "shares must sum to 100%");
 
-        recipients = newRecipients;
+        // Storage arrays of structs cannot be assigned directly from memory,
+        // so we push each element individually.
+        for (uint256 i = 0; i < newRecipients.length; i++) {
+            recipients.push(newRecipients[i]);
+        }
         totalShareBips = sum;
 
         for (uint256 i = 0; i < newRecipients.length; i++) {
@@ -114,7 +120,7 @@ contract PaymentSplitter is Ownable, ReentrancyGuard {
         uint256 amount
     ) external virtual nonReentrant {
         require(token != address(0), "zero token");
-        SafeERC20.safeTransferFrom(token, msg.sender, address(this), amount);
+        SafeERC20.safeTransferFrom(IERC20(token), msg.sender, address(this), amount);
         _distribute(msg.sender, token, amount);
     }
 

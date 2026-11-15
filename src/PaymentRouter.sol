@@ -46,35 +46,33 @@ contract PaymentRouter is CrossChainSplitter {
         emit PaymentRouted(USDT, amount, usdcAmount);
     }
 
-    function payInETH() external payable nonReentrant {
+    function payInETH() external payable override nonReentrant {
         uint256 usdcAmount = _normalizeToUSDC(address(0), msg.value);
         _route(address(0), msg.value);
         emit PaymentRouted(address(0), msg.value, usdcAmount);
     }
 
     function _normalizeToUSDC(address token, uint256 amount) internal view returns (uint256) {
-        (uint256 price, ) = priceFeeds[token];
-        require(price > 0, "no price feed");
+        PriceFeed memory feed = priceFeeds[token];
+        require(feed.price > 0, "no price feed");
 
         uint256 scaled = (amount * 1e18) / 10 ** _tokenDecimals(token);
-        uint256 usdc18 = (scaled * price) / 1e18;
+        uint256 usdc18 = (scaled * feed.price) / 1e18;
         return (usdc18 * 1e6) / 1e18;
     }
 
     function _tokenDecimals(address token) internal pure returns (uint256) {
         if (token == address(0)) return 18;
-        try IERC20(token).decimals() returns (uint256 d) {
-            return d;
-        } catch {
-            return 18;
-        }
+        // USDC and USDT both use 6 decimals; default to 18 otherwise.
+        if (token == USDC || token == USDT) return 6;
+        return 18;
     }
 
     function _route(address token, uint256 amount) internal nonReentrant {
         if (token == address(0)) {
             _distribute(msg.sender, address(0), amount);
         } else {
-            SafeERC20.safeTransferFrom(token, msg.sender, address(this), amount);
+            SafeERC20.safeTransferFrom(IERC20(token), msg.sender, address(this), amount);
             _distribute(msg.sender, token, amount);
         }
     }
